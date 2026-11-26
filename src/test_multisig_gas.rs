@@ -51,7 +51,7 @@ use soroban_sdk::{
     Address, Env, Vec,
 };
 
-use crate::{DataKey, ProposalAction, RevoraError, RevoraRevenueShare, RevoraRevenueShareClient};
+use crate::{DataKey3, ProposalAction, RevoraError, RevoraRevenueShare, RevoraRevenueShareClient};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -68,7 +68,10 @@ fn setup_env() -> (Env, Address, RevoraRevenueShareClient<'static>) {
 /// Uses `env.as_contract` to enter the contract's storage context.
 fn read_owners(env: &Env, contract_id: &Address) -> Vec<Address> {
     env.as_contract(contract_id, || {
-        env.storage().persistent().get::<DataKey, Vec<Address>>(&DataKey::MultisigOwners).unwrap()
+        env.storage()
+            .persistent()
+            .get::<DataKey3, Vec<Address>>(&DataKey3::MultisigOwners)
+            .unwrap()
     })
 }
 
@@ -95,6 +98,7 @@ fn setup_max_multisig() -> (Env, Address, RevoraRevenueShareClient<'static>, Add
             owners.clone(),
             threshold,
             86_400u64,
+            5_100u32,
         )
     })
     .unwrap();
@@ -190,6 +194,7 @@ fn execute_add_owner_at_cap_minus_one_within_budget() {
             owners.clone(),
             threshold,
             86_400u64,
+            5_100u32,
         )
     })
     .unwrap();
@@ -276,6 +281,7 @@ fn execute_remove_owner_below_threshold_returns_limit_reached() {
             owners.clone(),
             3u32,
             86_400u64,
+            10_000u32,
         )
     })
     .unwrap();

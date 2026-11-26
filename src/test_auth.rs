@@ -74,7 +74,9 @@
 //! 3. Treat any non-`Ok` / non-`RevoraError` response as a host auth failure.
 
 #![cfg(test)]
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, String as SdkString, Vec};
+use soroban_sdk::{
+    symbol_short, testutils::Address as _, Address, Env, String as SdkString, Symbol, Vec,
+};
 
 use crate::{RevoraError, RevoraRevenueShare, RevoraRevenueShareClient, RoundingMode};
 
@@ -102,6 +104,119 @@ fn setup_offering(env: &Env, client: &RevoraRevenueShareClient) -> (Address, Add
     client.set_admin(&issuer);
     client.register_offering(&issuer, &Vec::new(&env), &1u32, &symbol_short!("def"), &token, &1_000, &token, &0, &symbol_short!(""), &0);
     (issuer, token)
+}
+
+fn setup_whitelist_offering(
+) -> (Env, RevoraRevenueShareClient<'static>, Address, Address, Symbol, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = make_client(&env);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let namespace = symbol_short!("def");
+    let token = Address::generate(&env);
+    let payout_asset = Address::generate(&env);
+
+    client.initialize(&admin, &None::<Address>, &None::<bool>);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &namespace,
+        &token,
+        &1_000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0,
+    );
+
+    (env, client, admin, issuer, namespace, token)
+}
+
+#[test]
+fn whitelist_add_accepts_issuer_and_admin_for_registered_offering() {
+    let (env, client, admin, issuer, namespace, token) = setup_whitelist_offering();
+    let issuer_investor = Address::generate(&env);
+    let admin_investor = Address::generate(&env);
+
+    client.whitelist_add(&issuer, &issuer, &namespace, &token, &issuer_investor);
+    client.whitelist_add(&admin, &issuer, &namespace, &token, &admin_investor);
+
+    assert!(client.is_whitelisted(&issuer, &namespace, &token, &issuer_investor));
+    assert!(client.is_whitelisted(&issuer, &namespace, &token, &admin_investor));
+    assert_eq!(client.get_whitelist(&issuer, &namespace, &token).len(), 2);
+}
+
+#[test]
+fn whitelist_add_rejects_unknown_offering_dimensions_without_state_change() {
+    let (env, client, _admin, issuer, namespace, token) = setup_whitelist_offering();
+    let existing_investor = Address::generate(&env);
+    let rejected_investor = Address::generate(&env);
+    let unknown_issuer = Address::generate(&env);
+    let unknown_token = Address::generate(&env);
+    let unknown_namespace = Symbol::new(&env, "missing");
+
+    client.whitelist_add(&issuer, &issuer, &namespace, &token, &existing_investor);
+
+    assert_eq!(
+        client.try_whitelist_add(
+            &issuer,
+            &unknown_issuer,
+            &namespace,
+            &token,
+            &rejected_investor,
+        ),
+        Err(Ok(RevoraError::OfferingNotFound))
+    );
+    assert_eq!(
+        client.try_whitelist_add(
+            &issuer,
+            &issuer,
+            &unknown_namespace,
+            &token,
+            &rejected_investor,
+        ),
+        Err(Ok(RevoraError::OfferingNotFound))
+    );
+    assert_eq!(
+        client.try_whitelist_add(
+            &issuer,
+            &issuer,
+            &namespace,
+            &unknown_token,
+            &rejected_investor,
+        ),
+        Err(Ok(RevoraError::OfferingNotFound))
+    );
+
+    assert!(client.is_whitelisted(&issuer, &namespace, &token, &existing_investor));
+    assert!(!client.is_whitelisted(&issuer, &namespace, &token, &rejected_investor));
+    assert_eq!(client.get_whitelist(&issuer, &namespace, &token).len(), 1);
+}
+
+#[test]
+fn whitelist_add_rejects_authenticated_nonissuer_without_state_change() {
+    let (env, client, _admin, issuer, namespace, token) = setup_whitelist_offering();
+    let existing_investor = Address::generate(&env);
+    let rejected_investor = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    client.whitelist_add(&issuer, &issuer, &namespace, &token, &existing_investor);
+
+    assert_eq!(
+        client.try_whitelist_add(
+            &attacker,
+            &issuer,
+            &namespace,
+            &token,
+            &rejected_investor,
+        ),
+        Err(Ok(RevoraError::NotAuthorized))
+    );
+    assert!(client.is_whitelisted(&issuer, &namespace, &token, &existing_investor));
+    assert!(!client.is_whitelisted(&issuer, &namespace, &token, &rejected_investor));
+    assert_eq!(client.get_whitelist(&issuer, &namespace, &token).len(), 1);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -372,7 +487,7 @@ fn set_holder_share_wrong_issuer_no_mutation() {
         &token,
         &holder,
         &100u32,
-    );
+     &soroban_sdk::Vec::from_array(&env, [attacker.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     assert_eq!(
         client.get_holder_share(&issuer, &symbol_short!("def"), &token, &holder),
@@ -395,7 +510,7 @@ fn set_concentration_limit_wrong_issuer_no_mutation() {
         &1_000u32,
         &true,
         &0u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [attacker.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     assert!(
         client
@@ -418,7 +533,7 @@ fn set_rounding_mode_wrong_issuer_no_mutation() {
         &symbol_short!("def"),
         &token,
         &RoundingMode::RoundHalfUp,
-    );
+     &soroban_sdk::Vec::from_array(&env, [attacker.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     assert_eq!(
         client.get_rounding_mode(&issuer, &symbol_short!("def"), &token),
@@ -440,7 +555,7 @@ fn set_min_revenue_threshold_wrong_issuer_no_mutation() {
         &symbol_short!("def"),
         &token,
         &123i128,
-    );
+     &soroban_sdk::Vec::from_array(&env, [attacker.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     assert_eq!(
         client.get_min_revenue_threshold(&issuer, &symbol_short!("def"), &token),
@@ -462,7 +577,7 @@ fn set_claim_delay_wrong_issuer_no_mutation() {
         &symbol_short!("def"),
         &token,
         &100u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [attacker.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     assert_eq!(
         client.get_claim_delay(&issuer, &symbol_short!("def"), &token),
@@ -514,7 +629,7 @@ fn deposit_revenue_wrong_issuer_no_mutation() {
         &payment_token,
         &100,
         &1u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [attacker.clone()]));
     assert!(result.is_err());
     assert_eq!(
         client.get_period_count(&issuer, &symbol_short!("def"), &token),
@@ -681,7 +796,7 @@ fn cross_offering_confusion_wrong_issuer_no_mutation() {
         &token_a,
         &holder,
         &1_000u32,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer_b.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     // Issuer A's share table is unmodified.
     assert_eq!(
@@ -711,7 +826,7 @@ fn cross_offering_concentration_limit_wrong_issuer() {
         &5_000u32,
         &false,
         &0u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer_a.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
     assert!(
         client
@@ -741,7 +856,7 @@ fn cross_namespace_confusion_wrong_namespace() {
         &token,
         &holder,
         &500u32,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::OfferingNotFound)));
 
     // Namespace "ns1" is completely unaffected.
@@ -793,7 +908,7 @@ fn claim_blacklisted_holder_returns_holder_blacklisted() {
     let (issuer, token) = setup_offering(&env, &client);
     let holder = Address::generate(&env);
 
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &1_000u32, &1);
+    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &1_000u32, &1, &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     client.blacklist_add(&issuer, &issuer, &symbol_short!("def"), &token, &holder);
 
     let result = client.try_claim(&holder, &issuer, &symbol_short!("def"), &token, &0);
@@ -852,7 +967,7 @@ fn set_holder_share_blocked_when_frozen() {
         &token,
         &holder,
         &500u32,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::ContractFrozen)));
     assert_eq!(
         client.get_holder_share(&issuer, &symbol_short!("def"), &token, &holder),
@@ -898,7 +1013,7 @@ fn set_concentration_limit_blocked_when_frozen() {
         &2_000u32,
         &true,
         &0u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::ContractFrozen)));
     assert!(
         client
@@ -921,7 +1036,7 @@ fn set_claim_delay_blocked_when_frozen() {
         &symbol_short!("def"),
         &token,
         &3600u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::ContractFrozen)));
     assert_eq!(
         client.get_claim_delay(&issuer, &symbol_short!("def"), &token),
@@ -1002,7 +1117,7 @@ fn set_holder_share_invalid_bps_returns_typed_error() {
         &token,
         &holder,
         &10_001u32,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(result, Err(Ok(RevoraError::InvalidShareBps)));
     assert_eq!(
         client.get_holder_share(&issuer, &symbol_short!("def"), &token, &holder),
@@ -1025,7 +1140,7 @@ fn issuer_can_configure_offering_settings() {
     let (issuer, token) = setup_offering(&env, &client);
     let holder = Address::generate(&env);
 
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &5_000u32, &1);
+    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &5_000u32, &1, &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(
         client.get_holder_share(&issuer, &symbol_short!("def"), &token, &holder),
         5_000u32
@@ -1038,7 +1153,7 @@ fn issuer_can_configure_offering_settings() {
         &3_000u32,
         &false,
         &0u64,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     let cfg = client
         .get_concentration_limit(&issuer, &symbol_short!("def"), &token)
         .expect("concentration limit should be set");
@@ -1049,19 +1164,19 @@ fn issuer_can_configure_offering_settings() {
         &symbol_short!("def"),
         &token,
         &RoundingMode::RoundHalfUp,
-    );
+     &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(
         client.get_rounding_mode(&issuer, &symbol_short!("def"), &token),
         RoundingMode::RoundHalfUp
     );
 
-    client.set_min_revenue_threshold(&issuer, &symbol_short!("def"), &token, &50i128);
+    client.set_min_revenue_threshold(&issuer, &symbol_short!("def"), &token, &50i128, &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(
         client.get_min_revenue_threshold(&issuer, &symbol_short!("def"), &token),
         50i128
     );
 
-    client.set_claim_delay(&issuer, &symbol_short!("def"), &token, &3_600u64);
+    client.set_claim_delay(&issuer, &symbol_short!("def"), &token, &3_600u64, &soroban_sdk::Vec::from_array(&env, [issuer.clone()]));
     assert_eq!(
         client.get_claim_delay(&issuer, &symbol_short!("def"), &token),
         3_600u64
@@ -1084,7 +1199,7 @@ fn two_issuers_independent_settings() {
     client.register_offering(&issuer_b, &Vec::new(&env), &1u32, &symbol_short!("def"), &token_b, &2_000, &token_b, &0, &symbol_short!(""), &0);
 
     // Issuer A sets a holder share.
-    client.set_holder_share(&issuer_a, &symbol_short!("def"), &token_a, &holder, &1_000u32, &1);
+    client.set_holder_share(&issuer_a, &symbol_short!("def"), &token_a, &holder, &1_000u32, &1, &soroban_sdk::Vec::from_array(&env, [issuer_a.clone()]));
 
     // Issuer B's offering is unaffected.
     assert_eq!(
@@ -1093,7 +1208,7 @@ fn two_issuers_independent_settings() {
     );
 
     // Issuer B sets a delay; Issuer A's delay remains 0.
-    client.set_claim_delay(&issuer_b, &symbol_short!("def"), &token_b, &7_200u64);
+    client.set_claim_delay(&issuer_b, &symbol_short!("def"), &token_b, &7_200u64, &soroban_sdk::Vec::from_array(&env, [issuer_b.clone()]));
     assert_eq!(
         client.get_claim_delay(&issuer_a, &symbol_short!("def"), &token_a),
         0

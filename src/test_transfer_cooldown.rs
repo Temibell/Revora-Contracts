@@ -6,6 +6,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events, Ledger, LedgerInfo},
     Address, BytesN, Env, Symbol, Vec,
 };
+use std::format;
 
 /// Advance the test ledger by `secs` seconds.
 fn advance_ledger(env: &Env, secs: u64) {
@@ -26,7 +27,18 @@ fn setup_offering() -> (Env, RevoraRevenueShareClient<'static>, Address, Address
     let payout_asset = crate::test_utils::create_token(&env, &payout_asset_admin);
     crate::test_utils::mint_tokens(&env, &payout_asset, &issuer, 1_000_000);
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &symbol_short!("def"), &token, &5_000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &symbol_short!("def"),
+        &token,
+        &5_000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
 
     (env, client, issuer, token, payout_asset)
 }
@@ -99,7 +111,18 @@ fn test_transfer_blocked_by_cooldown() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -110,7 +133,15 @@ fn test_transfer_blocked_by_cooldown() {
     set_jurisdiction(&client, &issuer, &token, &holder1, jur.clone());
 
     // Set holder shares
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set a 1-hour cooldown for jurisdiction "us"
     client.set_transfer_cooldown(&issuer, &ns, &token, &jur, &3600);
@@ -142,7 +173,18 @@ fn test_transfer_allowed_after_cooldown_elapsed() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -150,7 +192,15 @@ fn test_transfer_allowed_after_cooldown_elapsed() {
     let jur = symbol_short!("us");
 
     set_jurisdiction(&client, &issuer, &token, &holder1, jur.clone());
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set a 1-hour cooldown
     client.set_transfer_cooldown(&issuer, &ns, &token, &jur, &3600);
@@ -181,7 +231,18 @@ fn test_cooldown_exactly_at_boundary_rejects() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -189,7 +250,15 @@ fn test_cooldown_exactly_at_boundary_rejects() {
     let jur = symbol_short!("us");
 
     set_jurisdiction(&client, &issuer, &token, &holder1, jur.clone());
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set a 60-second cooldown
     client.set_transfer_cooldown(&issuer, &ns, &token, &jur, &60);
@@ -230,7 +299,18 @@ fn test_cooldown_zero_means_disabled() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -238,7 +318,15 @@ fn test_cooldown_zero_means_disabled() {
     let jur = symbol_short!("us");
 
     set_jurisdiction(&client, &issuer, &token, &holder1, jur.clone());
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set cooldown to 0 — should be disabled
     client.set_transfer_cooldown(&issuer, &ns, &token, &jur, &0);
@@ -266,7 +354,18 @@ fn test_different_jurisdictions_have_independent_cooldowns() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder_us = Address::generate(&env);
@@ -277,8 +376,24 @@ fn test_different_jurisdictions_have_independent_cooldowns() {
     set_jurisdiction(&client, &issuer, &token, &holder_us, symbol_short!("us"));
     set_jurisdiction(&client, &issuer, &token, &holder_sg, symbol_short!("sg"));
 
-    client.set_holder_share(&issuer, &ns, &token, &holder_us, &100, &1);
-    client.set_holder_share(&issuer, &ns, &token, &holder_sg, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder_us,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder_sg,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set different cooldowns for each jurisdiction
     client.set_transfer_cooldown(&issuer, &ns, &token, &symbol_short!("us"), &3600); // 1 hour
@@ -339,7 +454,18 @@ fn test_cooldown_not_applied_when_jurisdiction_not_set() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -347,7 +473,15 @@ fn test_cooldown_not_applied_when_jurisdiction_not_set() {
 
     // Set empty allowed jurisdictions (gating disabled)
     client.set_allowed_jurisdictions(&issuer, &ns, &token, &soroban_sdk::vec![&env]);
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set a cooldown for "us" jurisdiction, but holder1 has no jurisdiction
     let jur = symbol_short!("us");
@@ -381,7 +515,18 @@ fn test_estimate_transfer_cooldown_consistency() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -389,7 +534,15 @@ fn test_estimate_transfer_cooldown_consistency() {
     let jur = symbol_short!("us");
 
     set_jurisdiction(&client, &issuer, &token, &holder1, jur.clone());
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // Set a cooldown
     client.set_transfer_cooldown(&issuer, &ns, &token, &jur, &3600);
@@ -447,7 +600,18 @@ fn test_cooldown_state_not_recorded_when_no_cooldown_configured() {
     let ns = symbol_short!("ns");
     let category = Symbol::new(&env, "General");
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1000, &payout_asset, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1000,
+        &payout_asset,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     env.ledger().set_network_id([0x01u8; 32]);
 
     let holder1 = Address::generate(&env);
@@ -455,7 +619,15 @@ fn test_cooldown_state_not_recorded_when_no_cooldown_configured() {
     let jur = symbol_short!("us");
 
     set_jurisdiction(&client, &issuer, &token, &holder1, jur.clone());
-    client.set_holder_share(&issuer, &ns, &token, &holder1, &100, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &holder1,
+        &100,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     // NO cooldown configured for "us" jurisdiction
 

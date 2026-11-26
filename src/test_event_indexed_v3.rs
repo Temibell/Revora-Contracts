@@ -21,7 +21,10 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{symbol_short, testutils::Address as _, testutils::Events as _, Address, Env, IntoVal, Symbol, Vec};
+use soroban_sdk::{
+    symbol_short, testutils::Address as _, testutils::Events as _, Address, Env, IntoVal, Symbol,
+    Vec,
+};
 
 use crate::{
     EventIndexTopicV2, EventIndexTopicV3, RevoraRevenueShare, RevoraRevenueShareClient, VoteChoice,
@@ -40,23 +43,47 @@ fn setup() -> (Env, RevoraRevenueShareClient<'static>, Address, Symbol, Address,
     let token = Address::generate(&env);
     let payout = Address::generate(&env);
     client.initialize(&admin, &None::<Address>, &None::<bool>);
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &2500, &payout, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &2500,
+        &payout,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     (env, client, issuer, ns, token, payout)
 }
 
 /// Commit a snapshot for an offering so `create_gov_proposal` can pin it.
 /// Returns the snapshot_ref used.
+fn commit_snapshot_with_holders(
+    client: &RevoraRevenueShareClient,
+    issuer: &Address,
+    ns: &Symbol,
+    token: &Address,
+    holders: &[(Address, u32)],
+) -> u64 {
+    let snapshot_ref: u64 = 1;
+    let mut vec = soroban_sdk::Vec::new(&client.env);
+    for (addr, bps) in holders {
+        client.set_holder_share(issuer, ns, token, addr, bps, &1);
+        vec.push_back((addr.clone(), *bps));
+    }
+    client.apply_snapshot_shares(issuer, ns, token, &snapshot_ref, &0u32, &vec);
+    snapshot_ref
+}
+
 fn commit_snapshot(
     client: &RevoraRevenueShareClient,
     issuer: &Address,
     ns: &Symbol,
     token: &Address,
 ) -> u64 {
-    let snapshot_ref: u64 = 1;
-    // apply_snapshot_shares writes SnapshotHolderShare entries and commits the ref.
-    // We call it with an empty holders vec just to create the commit ref.
-    client.apply_snapshot_shares(issuer, ns, token, &snapshot_ref, &soroban_sdk::vec![&client.env]);
-    snapshot_ref
+    commit_snapshot_with_holders(client, issuer, ns, token, &[])
 }
 
 /// Find the first `ev_idx3` event with the given `event_type` symbol
@@ -118,8 +145,15 @@ fn vote_v3_yes_topic_and_data_shape() {
     let (env, client, issuer, ns, token, _payout) = setup();
     let voter = Address::generate(&env);
 
-    commit_snapshot(&client, &issuer, &ns, &token);
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("prop1"));
+    commit_snapshot_with_holders(&client, &issuer, &ns, &token, &[(voter.clone(), 1000)]);
+    let proposal_id = client.create_gov_proposal(
+        &issuer,
+        &ns,
+        &token,
+        &symbol_short!("prop1"),
+        &1000u32,
+        &86400u64,
+    );
 
     let before = env.events().all().len();
     client.cast_vote(&issuer, &ns, &token, &proposal_id, &voter, &true);
@@ -141,7 +175,7 @@ fn vote_v3_yes_topic_and_data_shape() {
     assert_eq!(pid, proposal_id);
     assert_eq!(v, voter);
     assert_eq!(choice, VoteChoice::Yes, "approve=true maps to VoteChoice::Yes");
-    assert_eq!(weight, 0, "voter has 0 snapshot weight (no shares set); weight must be 0");
+    assert_eq!(weight, 1000, "voter weight must match snapshot share");
 }
 
 /// Pins the data shape for `vote_v3` on a No vote — VoteChoice::No boundary.
@@ -150,8 +184,15 @@ fn vote_v3_no_choice_boundary() {
     let (env, client, issuer, ns, token, _payout) = setup();
     let voter = Address::generate(&env);
 
-    commit_snapshot(&client, &issuer, &ns, &token);
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("prop1"));
+    commit_snapshot_with_holders(&client, &issuer, &ns, &token, &[(voter.clone(), 2000)]);
+    let proposal_id = client.create_gov_proposal(
+        &issuer,
+        &ns,
+        &token,
+        &symbol_short!("prop1"),
+        &1000u32,
+        &86400u64,
+    );
 
     let before = env.events().all().len();
     client.cast_vote(&issuer, &ns, &token, &proposal_id, &voter, &false);
@@ -159,8 +200,9 @@ fn vote_v3_no_choice_boundary() {
     let (_, data_v3) = find_indexed_v3(&env, symbol_short!("vote_v3"), before)
         .expect("vote_v3 ev_idx3 event must be emitted");
 
-    let (_, _, choice, _): (u32, Address, VoteChoice, u32) = data_v3.into_val(&env);
+    let (_, _, choice, weight): (u32, Address, VoteChoice, u32) = data_v3.into_val(&env);
     assert_eq!(choice, VoteChoice::No, "approve=false maps to VoteChoice::No");
+    assert_eq!(weight, 2000);
 }
 
 // ── Dual-emit: V2 + V3 both present ──────────────────────────────────────────
@@ -172,8 +214,9 @@ fn vote_v3_dual_emit_v2_and_v3() {
     let (env, client, issuer, ns, token, _payout) = setup();
     let voter = Address::generate(&env);
 
-    commit_snapshot(&client, &issuer, &ns, &token);
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("p1"));
+    commit_snapshot_with_holders(&client, &issuer, &ns, &token, &[(voter.clone(), 1500)]);
+    let proposal_id =
+        client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("p1"), &1000u32, &86400u64);
 
     let before = env.events().all().len();
     client.cast_vote(&issuer, &ns, &token, &proposal_id, &voter, &true);
@@ -205,17 +248,34 @@ fn vote_v3_carries_correct_weight_from_snapshot() {
     let voter = Address::generate(&env);
 
     // Set holder share and commit snapshot so the weight is pinned.
-    client.set_holder_share(&issuer, &ns, &token, &voter, &3000_u32, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &voter,
+        &3000_u32,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
     let snapshot_ref: u64 = 1;
     client.apply_snapshot_shares(
         &issuer,
         &ns,
         &token,
         &snapshot_ref,
-        &soroban_sdk::vec![&env, voter.clone()],
+        &0u32,
+        &soroban_sdk::vec![&env, (voter.clone(), 3000_u32)],
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
     );
 
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("wprop"));
+    let proposal_id = client.create_gov_proposal(
+        &issuer,
+        &ns,
+        &token,
+        &symbol_short!("wprop"),
+        &1000u32,
+        &86400u64,
+    );
 
     let before = env.events().all().len();
     let returned_weight = client.cast_vote(&issuer, &ns, &token, &proposal_id, &voter, &true);
@@ -238,8 +298,21 @@ fn vote_v3_emitted_for_every_voter() {
     let voter_a = Address::generate(&env);
     let voter_b = Address::generate(&env);
 
-    commit_snapshot(&client, &issuer, &ns, &token);
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("multi"));
+    commit_snapshot_with_holders(
+        &client,
+        &issuer,
+        &ns,
+        &token,
+        &[(voter_a.clone(), 1000), (voter_b.clone(), 2000)],
+    );
+    let proposal_id = client.create_gov_proposal(
+        &issuer,
+        &ns,
+        &token,
+        &symbol_short!("multi"),
+        &1000u32,
+        &86400u64,
+    );
 
     // First vote
     let before_a = env.events().all().len();
@@ -271,8 +344,15 @@ fn vote_v3_double_vote_rejected_no_second_event() {
     let (env, client, issuer, ns, token, _payout) = setup();
     let voter = Address::generate(&env);
 
-    commit_snapshot(&client, &issuer, &ns, &token);
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("dbl"));
+    commit_snapshot_with_holders(&client, &issuer, &ns, &token, &[(voter.clone(), 1000)]);
+    let proposal_id = client.create_gov_proposal(
+        &issuer,
+        &ns,
+        &token,
+        &symbol_short!("dbl"),
+        &1000u32,
+        &86400u64,
+    );
 
     client.cast_vote(&issuer, &ns, &token, &proposal_id, &voter, &true);
     let event_count_after_first = env.events().all().len();
@@ -303,7 +383,18 @@ fn register_offering_emits_v2_and_v3_indexed_events() {
     client.initialize(&admin, &None::<Address>, &None::<bool>);
 
     let before = env.events().all().len();
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1_000, &payout, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1_000,
+        &payout,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
     let events = env.events().all();
 
     assert!(events.len() > before + 2, "expected at least 3 events (offer_reg, ev_idx2, ev_idx3)");
@@ -325,11 +416,27 @@ fn report_revenue_emits_v2_and_v3_indexed_events() {
 #[test]
 fn claim_emits_v2_and_v3_indexed_events() {
     let (env, client, issuer, ns, token, payout) = setup();
-    client.set_holder_share(&issuer, &ns, &token, &issuer, &10_000, &1);
-    client.deposit_revenue(&issuer, &ns, &token, &payout, &1_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &ns,
+        &token,
+        &issuer,
+        &10_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
+    client.deposit_revenue(
+        &issuer,
+        &ns,
+        &token,
+        &payout,
+        &1_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let before = env.events().all().len();
-    let _payout = client.claim(&issuer, &ns, &token, &10);
+    let _payout = client.claim(&issuer, &issuer, &ns, &token, &10u32);
     let events = env.events().all();
 
     assert!(events.len() > before + 1, "expected claim events including ev_idx2 and ev_idx3");
@@ -369,9 +476,20 @@ fn v2_and_v3_fixtures_have_parallel_structure() {
 /// V2-only subscribers still receive V2 events after V3 addition.
 #[test]
 fn v2_only_subscribers_still_receive_v2_events() {
-    let (env, client, issuer, token, ns, payout) = setup();
+    let (env, client, issuer, ns, token, payout) = setup();
 
-    client.register_offering(&issuer, &Vec::new(&env), &1u32, &ns, &token, &1_000, &payout, &0, &symbol_short!(""), &0u32);
+    client.register_offering(
+        &issuer,
+        &Vec::new(&env),
+        &1u32,
+        &ns,
+        &token,
+        &1_000,
+        &payout,
+        &0,
+        &symbol_short!(""),
+        &0u32,
+    );
 
     // V2 events are still emitted alongside V3
     let events = env.events().all();
@@ -395,8 +513,15 @@ fn vote_choice_roundtrip_in_event_payload() {
     let voter_yes = Address::generate(&env);
     let voter_no = Address::generate(&env);
 
-    commit_snapshot(&client, &issuer, &ns, &token);
-    let proposal_id = client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("rt"));
+    commit_snapshot_with_holders(
+        &client,
+        &issuer,
+        &ns,
+        &token,
+        &[(voter_yes.clone(), 1000), (voter_no.clone(), 1000)],
+    );
+    let proposal_id =
+        client.create_gov_proposal(&issuer, &ns, &token, &symbol_short!("rt"), &1000u32, &86400u64);
 
     // Yes vote
     let b1 = env.events().all().len();

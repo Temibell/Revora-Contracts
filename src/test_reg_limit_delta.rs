@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use crate::{RevoraRevenueShareClient, EVENT_REG_LIMIT_DELTA};
-use soroban_sdk::{symbol_short, testutils::Address as _, testutils::Events as _, Address, Env, IntoVal, Symbol};
+use soroban_sdk::{
+    symbol_short, testutils::Address as _, testutils::Events as _, Address, Env, IntoVal, Symbol,
+    Vec,
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -14,7 +17,8 @@ fn setup_offering(env: &Env) -> (RevoraRevenueShareClient<'static>, Address, Add
     let payout = env.register_stellar_asset_contract_v2(admin.clone()).address();
     soroban_sdk::token::StellarAssetClient::new(env, &payout).mint(&admin, &1_000_000);
     client.initialize(&admin, &None::<Address>, &None::<bool>);
-    client.register_offering(&admin,
+    client.register_offering(
+        &admin,
         &Vec::new(&env),
         &1u32,
         &symbol_short!("def"),
@@ -23,7 +27,8 @@ fn setup_offering(env: &Env) -> (RevoraRevenueShareClient<'static>, Address, Add
         &payout,
         &0,
         &symbol_short!(""),
-        &0);
+        &0,
+    );
     (client, admin, token, payout)
 }
 
@@ -78,7 +83,15 @@ fn test_reg_limit_delta_emitted_on_set_holder_share() {
     set_jurisdiction(&client, &issuer, &token, &holder, symbol_short!("us"));
 
     let before = env.events().all().len();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &2_500, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &2_500,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let events = find_reg_limit_events(&env, before as u32);
     assert_eq!(events.len(), 1, "exactly one reg_limit_delta event expected");
@@ -98,10 +111,26 @@ fn test_reg_limit_delta_emitted_on_zeroing_share() {
     let holder = Address::generate(&env);
 
     set_jurisdiction(&client, &issuer, &token, &holder, symbol_short!("us"));
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &2_500, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &2_500,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let before = env.events().all().len();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &0, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &0,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let events = find_reg_limit_events(&env, before as u32);
     assert_eq!(events.len(), 1);
@@ -119,7 +148,15 @@ fn test_no_reg_limit_delta_without_jurisdiction() {
     let holder = Address::generate(&env);
 
     let before = env.events().all().len();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &2_500, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &2_500,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let events = find_reg_limit_events(&env, before as u32);
     assert_eq!(events.len(), 0, "no reg_limit_delta without jurisdiction");
@@ -136,7 +173,15 @@ fn test_reg_limit_delta_on_transfer_different_jurisdictions() {
     set_jurisdiction(&client, &issuer, &token, &from, symbol_short!("us"));
     set_jurisdiction(&client, &issuer, &token, &to, symbol_short!("sg"));
 
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &from, &5_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &from,
+        &5_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let before = env.events().all().len();
     client.transfer_with_attestation(
@@ -178,7 +223,15 @@ fn test_reg_limit_delta_on_transfer_same_jurisdiction() {
     set_jurisdiction(&client, &issuer, &token, &from, symbol_short!("us"));
     set_jurisdiction(&client, &issuer, &token, &to, symbol_short!("us"));
 
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &from, &5_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &from,
+        &5_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let before = env.events().all().len();
     client.transfer_with_attestation(
@@ -225,9 +278,33 @@ fn test_reg_limit_delta_multiple_holders_multiple_jurisdictions() {
     set_jurisdiction(&client, &issuer, &token, &holder_sg, symbol_short!("sg"));
 
     let before = env.events().all().len();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder_us1, &3_000, &1);
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder_us2, &2_000, &1);
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder_sg, &5_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder_us1,
+        &3_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder_us2,
+        &2_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder_sg,
+        &5_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let events = find_reg_limit_events(&env, before as u32);
     assert_eq!(events.len(), 3);
@@ -240,8 +317,11 @@ fn test_reg_limit_delta_multiple_holders_multiple_jurisdictions() {
         .sum();
     assert_eq!(us_sum, 5_000, "total US jurisdiction shares should be 5000 bps");
 
-    let sg_sum: i128 =
-        events.iter().filter(|(_, j, _, _)| *j == symbol_short!("sg")).map(|(_, _, d, _)| *d).sum();
+    let sg_sum: i128 = events
+        .into_iter()
+        .filter(|(_, j, _, _)| *j == symbol_short!("sg"))
+        .map(|(_, _, d, _)| d)
+        .sum();
     assert_eq!(sg_sum, 5_000, "total SG jurisdiction shares should be 5000 bps");
 }
 
@@ -255,7 +335,15 @@ fn test_transfer_from_no_jurisdiction_to_jurisdiction() {
 
     set_jurisdiction(&client, &issuer, &token, &to, symbol_short!("us"));
 
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &from, &5_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &from,
+        &5_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let before = env.events().all().len();
     client.transfer_with_attestation(
@@ -286,7 +374,15 @@ fn test_transfer_both_no_jurisdiction_no_events() {
     let from = Address::generate(&env);
     let to = Address::generate(&env);
 
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &from, &5_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &from,
+        &5_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let before = env.events().all().len();
     client.transfer_with_attestation(
@@ -313,7 +409,15 @@ fn test_reg_limit_delta_event_data_shape() {
     set_jurisdiction(&client, &issuer, &token, &holder, symbol_short!("uk"));
 
     let before = env.events().all().len();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &1_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &1_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let all = env.events().all();
     for i in before..all.len() {
@@ -364,7 +468,15 @@ fn set_holder_share_reg_limit_delta_gas_budget() {
     set_jurisdiction(&client, &issuer, &token, &holder, symbol_short!("us"));
 
     let cpu_before = env.budget().cpu_instruction_cost();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &2_500, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &2_500,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
     let cpu_after = env.budget().cpu_instruction_cost();
     let cost = cpu_after - cpu_before;
     // std::println!("CPU cost for set_holder_share (with reg_limit_delta): {}", cost);
@@ -386,7 +498,15 @@ fn transfer_reg_limit_delta_gas_budget() {
 
     set_jurisdiction(&client, &issuer, &token, &from, symbol_short!("us"));
     set_jurisdiction(&client, &issuer, &token, &to, symbol_short!("sg"));
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &from, &5_000, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &from,
+        &5_000,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
 
     let cpu_before = env.budget().cpu_instruction_cost();
     client.transfer_with_attestation(
@@ -417,7 +537,15 @@ fn set_holder_share_no_jurisdiction_gas_budget() {
     let holder = Address::generate(&env);
 
     let cpu_before = env.budget().cpu_instruction_cost();
-    client.set_holder_share(&issuer, &symbol_short!("def"), &token, &holder, &2_500, &1);
+    client.set_holder_share(
+        &issuer,
+        &symbol_short!("def"),
+        &token,
+        &holder,
+        &2_500,
+        &1,
+        &soroban_sdk::Vec::from_array(&env, [issuer.clone()]),
+    );
     let cpu_after = env.budget().cpu_instruction_cost();
     let cost = cpu_after - cpu_before;
     // std::println!("CPU cost for set_holder_share (no jurisdiction): {}", cost);
